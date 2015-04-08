@@ -58,6 +58,25 @@ impl<'a, N: NetworkListener + 'a> Iterator for NetworkConnections<'a, N> {
 pub trait NetworkStream: Read + Write + Any + StreamClone + Send + Typeable {
     /// Get the remote address of the underlying connection.
     fn peer_addr(&mut self) -> io::Result<SocketAddr>;
+    // BEG SOLICIT
+    #[doc(hidden)]
+    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+        let mut total = 0;
+        while total < buf.len() {
+            let read = try!(self.read(&mut buf[total..]));
+            if read == 0 {
+                // We consider this an unexpected end of file and return an
+                // error since we were unable to read the minimum amount of
+                // bytes.
+                return Err(io::Error::new(io::ErrorKind::Other,
+                                          "Not enough bytes"));
+            }
+            total += read;
+        }
+
+        Ok(())
+    }    
+    // END SOLICIT
 }
 
 #[doc(hidden)]
