@@ -44,11 +44,12 @@ impl Request<Fresh> {
     /// Create a new client request.
     pub fn new(method: method::Method, url: Url) -> HttpResult<Request<Fresh>> {
         let mut conn = HttpConnector(None);
-        Request::with_connector(method, url, &mut conn)
+        let mut version = version::HttpVersion::Http11;
+        Request::with_connector(method, url, &mut conn, &mut version) //http2:flag for http11
     }
 
     /// Create a new client request with a specific underlying NetworkStream.
-    pub fn with_connector<C, S>(method: method::Method, url: Url, connector: &mut C)
+    pub fn with_connector<C, S>(method: method::Method, url: Url, connector: &mut C, version: &mut version::HttpVersion)
         -> HttpResult<Request<Fresh>> where
         C: NetworkConnector<Stream=S>,
         S: Into<Box<NetworkStream + Send>> {
@@ -65,13 +66,13 @@ impl Request<Fresh> {
         });
 
         //http2: note
-        //let mut protocol = version::HttpVersion:: versiontype //set to http2 if client http2flag is ture
-        //
+        let protocol = version.clone(); //copy version to request
+
         Ok(Request {
             method: method,
             headers: headers,
             url: url,
-            version: version::HttpVersion::Http11, //change to use protocol var
+            version: protocol, //change to use protocol var
             body: stream,
             _marker: PhantomData,
         })
@@ -218,11 +219,12 @@ mod tests {
     use method::Method::{Get, Head};
     use mock::{MockStream, MockConnector};
     use super::Request;
+    use version::HttpVersion::{Http11}; //http2: TODO: add tests for http2 splits
 
     #[test]
     fn test_get_empty_body() {
         let req = Request::with_connector(
-            Get, Url::parse("http://example.dom").unwrap(), &mut MockConnector
+            Get, Url::parse("http://example.dom").unwrap(), &mut MockConnector, &mut Http11
         ).unwrap();
         let req = req.start().unwrap();
         let stream = *req.body.end().unwrap()
@@ -236,7 +238,7 @@ mod tests {
     #[test]
     fn test_head_empty_body() {
         let req = Request::with_connector(
-            Head, Url::parse("http://example.dom").unwrap(), &mut MockConnector
+            Head, Url::parse("http://example.dom").unwrap(), &mut MockConnector, &mut Http11
         ).unwrap();
         let req = req.start().unwrap();
         let stream = *req.body.end().unwrap()

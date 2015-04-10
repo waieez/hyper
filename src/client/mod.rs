@@ -31,6 +31,7 @@ use net::{NetworkConnector, NetworkStream, HttpConnector, ContextVerifier};
 use status::StatusClass::Redirection;
 use {Url, HttpResult};
 use HttpError::HttpUriError;
+use version::HttpVersion;
 
 pub use self::request::Request;
 pub use self::response::Response;
@@ -44,7 +45,8 @@ pub mod response;
 pub struct Client {
     connector: Connector,
     redirect_policy: RedirectPolicy,
-    //http2flag
+    /// Version to separate control flow for Http2 Requests
+    pub version: HttpVersion
 }
 
 impl Client {
@@ -54,16 +56,20 @@ impl Client {
         Client::with_connector(HttpConnector(None))
     }
 
-    // fn http2(&mut self) -> Client { http2: edit me
-    //     self.http2flag = true;
-    // }
+    /// Sets flag for http2 requests
+    pub fn http2(mut self) -> Client {
+        //http2: not too sure about this method for chaining
+        self.version = HttpVersion::Http20;
+        self
+    }
     
     /// Create a new client with a specific connector.
     pub fn with_connector<C, S>(connector: C) -> Client
     where C: NetworkConnector<Stream=S> + Send + 'static, S: NetworkStream + Send {
         Client {
             connector: with_connector(connector),
-            redirect_policy: Default::default()
+            redirect_policy: Default::default(),
+            version: HttpVersion::Http11
         }
     }
 
@@ -146,7 +152,7 @@ impl NetworkConnector for Connector {
 /// One of these will be built for you if you use one of the convenience
 /// methods, such as `get()`, `post()`, etc.
 pub struct RequestBuilder<'a, U: IntoUrl> {
-    client: &'a mut Client,
+    client: &'a mut Client, //http2: httpversion flag
     url: U,
     headers: Option<Headers>,
     method: Method,
@@ -201,7 +207,7 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
         };
 
         loop { //http2: calls req::w/conn and returns Request<Fresh>
-            let mut req = try!(Request::with_connector(method.clone(), url.clone(), &mut client.connector));
+            let mut req = try!(Request::with_connector(method.clone(), url.clone(), &mut client.connector, &mut client.version));
             headers.as_ref().map(|headers| req.headers_mut().extend(headers.iter()));
 
             match (can_have_body, body.as_ref()) {
