@@ -162,10 +162,10 @@ impl Request<Streaming> {
     pub fn send(self) -> HttpResult<Response> {
         //http2: check version if http2, call sendhttp2 privatefunc. raw is the stream
         match self.version {
-            Http20 => {
-                //http2: perhaps add http2 response method
-                Response::new(raw)
-            },
+            // Http20 => {
+            //     //http2: perhaps add http2 response method
+            //     Response::new(raw)
+            // },
             _ => {
                 let raw = try!(self.body.end()).into_inner().unwrap(); // end() already flushes
                 Response::new(raw)

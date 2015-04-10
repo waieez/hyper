@@ -191,10 +191,23 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
 
     /// Execute this request and receive a Response back.
     pub fn send(self) -> HttpResult<Response> {
+        //http2: fork into http2
+        match self.client.version {
+            HttpVersion::Http20 => {
+                self.sendhttp20()
+            }
+            _ => {
+                self.sendhttp11()
+            }
+        }
+    }
+
+    fn sendhttp20 (self) -> HttpResult<Response> {
+        self.sendhttp11()
+    }
+
+    fn sendhttp11 (self) -> HttpResult<Response> {
         let RequestBuilder { client, method, url, headers, body } = self;
-
-        //fork into http2
-
         let mut url = try!(url.into_url());
         debug!("client.request {:?} {:?}", method, url);
 
