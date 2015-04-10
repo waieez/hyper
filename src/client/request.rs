@@ -10,7 +10,8 @@ use header::{self, Host};
 use net::{NetworkStream, NetworkConnector, HttpConnector, Fresh, Streaming};
 use http::{HttpWriter, LINE_ENDING};
 use http::HttpWriter::{ThroughWriter, ChunkedWriter, SizedWriter, EmptyWriter};
-use version;
+use version::HttpVersion;
+use version::HttpVersion::{Http11, Http20};
 use HttpResult;
 use client::{Response, get_host_and_port};
 
@@ -21,7 +22,7 @@ pub struct Request<W> {
     pub url: Url,
 
     /// The HTTP version of this request.
-    pub version: version::HttpVersion,
+    pub version: HttpVersion,
 
     body: HttpWriter<BufWriter<Box<NetworkStream + Send>>>,
     headers: Headers,
@@ -44,12 +45,12 @@ impl Request<Fresh> {
     /// Create a new client request.
     pub fn new(method: method::Method, url: Url) -> HttpResult<Request<Fresh>> {
         let mut conn = HttpConnector(None);
-        let mut version = version::HttpVersion::Http11;
+        let mut version = Http11;
         Request::with_connector(method, url, &mut conn, &mut version) //http2:flag for http11
     }
 
     /// Create a new client request with a specific underlying NetworkStream.
-    pub fn with_connector<C, S>(method: method::Method, url: Url, connector: &mut C, version: &mut version::HttpVersion)
+    pub fn with_connector<C, S>(method: method::Method, url: Url, connector: &mut C, version: &mut HttpVersion)
         -> HttpResult<Request<Fresh>> where
         C: NetworkConnector<Stream=S>,
         S: Into<Box<NetworkStream + Send>> {
@@ -160,9 +161,17 @@ impl Request<Streaming> {
     /// Consumes the Request.
     pub fn send(self) -> HttpResult<Response> {
         //http2: check version if http2, call sendhttp2 privatefunc. raw is the stream
+        match self.version {
+            Http20 => {
+                //http2: perhaps add http2 response method
+                Response::new(raw)
+            },
+            _ => {
+                let raw = try!(self.body.end()).into_inner().unwrap(); // end() already flushes
+                Response::new(raw)
+            }
+        }
         
-        let raw = try!(self.body.end()).into_inner().unwrap(); // end() already flushes
-        Response::new(raw)
     }
 
     // http2: note client::send is called to get response
@@ -170,6 +179,8 @@ impl Request<Streaming> {
         // init
         //write_preface(stream: &mut NetworkStream);
         //read_preface(stream: &mut NetworkStream);
+
+        //gets a streamid
 
         //if success
             // send_request
@@ -197,6 +208,27 @@ impl Request<Streaming> {
             // }));
         //else
             //send as http1
+
+            // pub fn get_response(session: &mut Session, stream_id: StreamId) -> HttpResult<Response> {
+            //     match session.get_stream(stream_id) {
+            //         None => return Err(HttpError::UnknownStreamId),
+            //         Some(_) => {},
+            //     };
+            //     loop {
+            //         if let Some(stream) = session.get_stream(stream_id) {
+            //             if stream.is_closed() {
+            //                 return Ok(Response {
+            //                     stream_id: stream.id(),
+            //                     headers: stream.headers.clone().unwrap(),
+            //                     body: stream.body.clone(),
+            //                 });
+            //             }
+            //         }
+            //         //handle_next_frame(stream: &mut NetworkStream, session: &mut Session, decoder: &mut Decoder) -> HttpResult<()>
+            //         try!(handle_next_frame());
+            //     }
+            // }
+
     // }
 }
 

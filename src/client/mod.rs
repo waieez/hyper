@@ -55,7 +55,7 @@ impl Client {
     pub fn new() -> Client {
         Client::with_connector(HttpConnector(None))
     }
-
+    // Client::new().http2().get("url").send()
     /// Sets flag for http2 requests
     pub fn http2(mut self) -> Client {
         //http2: not too sure about this method for chaining
@@ -192,6 +192,9 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
     /// Execute this request and receive a Response back.
     pub fn send(self) -> HttpResult<Response> {
         let RequestBuilder { client, method, url, headers, body } = self;
+
+        //fork into http2
+
         let mut url = try!(url.into_url());
         debug!("client.request {:?} {:?}", method, url);
 
@@ -219,7 +222,7 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
                 _ => () // neither
             }
 
-            //http2: consumes fresh req and returns streaming req
+            //http2: consumes fresh Request<streaming> and returns streaming req
             let mut streaming = try!(req.start());
             body.take().map(|mut rdr| copy(&mut rdr, &mut streaming));
 
