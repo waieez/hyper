@@ -25,6 +25,9 @@ url = "*"
 traitobject = "*"
 typeable = "*"
 
+[dependencies.hpack]
+git = "https://github.com/Galvanization/hpack-rs"
+
 [dev-dependencies]
 env_logger = "*"
 

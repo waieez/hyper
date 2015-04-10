@@ -12,7 +12,7 @@ use super::frame::{
     unpack_header,
 };
 use hpack::{Encoder, Decoder};
-use hyper::net::{NetworkStream};
+use net::{NetworkStream};
 
 /// An enum representing all frame variants that can be returned by an
 /// `HttpConnection`.

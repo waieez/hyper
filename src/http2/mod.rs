@@ -7,8 +7,6 @@ use std::error::Error;
 use hpack::decoder::DecoderError;
 
 pub mod frame;
-// pub mod transport;
-pub mod connection;
 pub mod session;
 pub mod http2;
 
@@ -21,6 +19,7 @@ pub type Header = (Vec<u8>, Vec<u8>);
 /// An enum representing errors that can arise when performing operations
 /// involving an HTTP/2 connection.
 #[derive(Debug)]
+#[doc(hidden)]
 pub enum HttpError {
     IoError(io::Error),
     UnknownFrameType,
@@ -69,6 +68,7 @@ pub type HttpResult<T> = Result<T, HttpError>;
 /// The full body of the response is included, regardless how large it may be.
 /// The headers contain both the meta-headers, as well as the actual headers.
 #[derive(Clone)]
+#[doc(hidden)]
 pub struct Response {
     /// The ID of the stream to which the response is associated. HTTP/1.1 does
     /// not really have an equivalent to this.
@@ -138,6 +138,7 @@ impl Response {
 /// A struct representing a full HTTP/2 request, along with the full body, as a
 /// sequence of bytes.
 #[derive(Clone)]
+#[doc(hidden)]
 pub struct Request {
     pub stream_id: u32,
     pub headers: Vec<Header>,
