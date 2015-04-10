@@ -64,11 +64,14 @@ impl Request<Fresh> {
             port: Some(port),
         });
 
+        //http2: note
+        //let mut protocol = version::HttpVersion:: versiontype //set to http2 if client http2flag is ture
+        //
         Ok(Request {
             method: method,
             headers: headers,
             url: url,
-            version: version::HttpVersion::Http11,
+            version: version::HttpVersion::Http11, //change to use protocol var
             body: stream,
             _marker: PhantomData,
         })
@@ -155,9 +158,45 @@ impl Request<Streaming> {
     ///
     /// Consumes the Request.
     pub fn send(self) -> HttpResult<Response> {
+        //http2: check version if http2, call sendhttp2 privatefunc. raw is the stream
+        
         let raw = try!(self.body.end()).into_inner().unwrap(); // end() already flushes
         Response::new(raw)
     }
+
+    // http2: note client::send is called to get response
+    // fn sendhttp2 (&mut self) -> HttpStream? {
+        // init
+        //write_preface(stream: &mut NetworkStream);
+        //read_preface(stream: &mut NetworkStream);
+
+        //if success
+            // send_request
+            // first destructure Fresh Request
+            // let scheme = b"http".to_vec();
+            // let host = self.host.clone();
+
+            // let stream_id = self.new_stream();
+
+            // let mut headers: Vec<Header> = vec![
+            //     (b":method".to_vec(), method.to_vec()),
+            //     (b":path".to_vec(), path.to_vec()),
+            //     (b":authority".to_vec(), host),
+            //     (b":scheme".to_vec(), scheme),
+            // ];
+            // where does the body go?
+
+            //recreate request object
+            //extract stream from request
+            //send_request(stream: &mut NetworkStream, encoder: &mut Encoder, req: Request)
+            // try!(self.conn.send_request(Request {
+            //     stream_id: stream_id,
+            //     headers: headers,
+            //     body: Vec::new(),
+            // }));
+        //else
+            //send as http1
+    // }
 }
 
 impl Write for Request<Streaming> {

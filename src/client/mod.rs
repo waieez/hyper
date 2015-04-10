@@ -44,6 +44,7 @@ pub mod response;
 pub struct Client {
     connector: Connector,
     redirect_policy: RedirectPolicy,
+    //http2flag
 }
 
 impl Client {
@@ -53,6 +54,10 @@ impl Client {
         Client::with_connector(HttpConnector(None))
     }
 
+    // fn http2(&mut self) -> Client { http2: edit me
+    //     self.http2flag = true;
+    // }
+    
     /// Create a new client with a specific connector.
     pub fn with_connector<C, S>(connector: C) -> Client
     where C: NetworkConnector<Stream=S> + Send + 'static, S: NetworkStream + Send {
@@ -195,7 +200,7 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
              None
         };
 
-        loop {
+        loop { //http2: calls req::w/conn and returns Request<Fresh>
             let mut req = try!(Request::with_connector(method.clone(), url.clone(), &mut client.connector));
             headers.as_ref().map(|headers| req.headers_mut().extend(headers.iter()));
 
@@ -207,8 +212,12 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
                 (true, None) => req.headers_mut().set(ContentLength(0)),
                 _ => () // neither
             }
+
+            //http2: consumes fresh req and returns streaming req
             let mut streaming = try!(req.start());
             body.take().map(|mut rdr| copy(&mut rdr, &mut streaming));
+
+            //http2: the response returned from http2:send should be a HttpResult<Response>
             let res = try!(streaming.send());
             if res.status.class() != Redirection {
                 return Ok(res)
