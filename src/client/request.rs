@@ -49,10 +49,9 @@ impl Request<Fresh> {
         Request::with_connector(method, url, &mut conn, &mut version) //http2:flag for http11
     }
 
-    pub fn http2 () {
-        let stream = try!(connector.connect(&*host, port, &*url.scheme)).into();
-        
-    }
+    // pub fn http2 () {
+        //http2: edit me
+    // }
 
     /// Create a new client request with a specific underlying NetworkStream.
     pub fn with_connector<C, S>(method: method::Method, url: Url, connector: &mut C, version: &mut HttpVersion)
@@ -62,8 +61,10 @@ impl Request<Fresh> {
         debug!("{} {}", method, url);
         let (host, port) = try!(get_host_and_port(&url));
 
+        //http2: note could perhaps call with connector to get stream
         let stream = try!(connector.connect(&*host, port, &*url.scheme)).into();
         let stream = ThroughWriter(BufWriter::new(stream));
+        let protocol = version.clone(); //copy version to request
 
         let mut headers = Headers::new();
         headers.set(Host {
@@ -71,8 +72,6 @@ impl Request<Fresh> {
             port: Some(port),
         });
 
-        //http2: note
-        let protocol = version.clone(); //copy version to request
 
         Ok(Request {
             method: method,

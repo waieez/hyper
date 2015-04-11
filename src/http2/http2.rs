@@ -130,7 +130,7 @@ fn parse_frame<F: Frame>(raw_frame: RawFrame) -> HttpResult<F> {
 pub fn init (stream: &mut NetworkStream) -> HttpResult<()> {
     try!(write_preface(stream));
     try!(read_preface(stream));
-    OK(())
+    Ok(())
 }
 
 /// Writes the client preface to the underlying HTTP/2 connection.

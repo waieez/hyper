@@ -6,8 +6,11 @@ use std::error::Error;
 
 use hpack::decoder::DecoderError;
 
+#[doc(hidden)]
 pub mod frame;
+#[doc(hidden)]
 pub mod session;
+#[doc(hidden)]
 pub mod http2;
 
 /// An alias for the type that represents the ID of an HTTP/2 stream

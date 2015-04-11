@@ -31,6 +31,8 @@ use net::{NetworkConnector, NetworkStream, HttpConnector, ContextVerifier};
 use status::StatusClass::Redirection;
 use {Url, HttpResult};
 use HttpError::HttpUriError;
+
+//http2
 use version::HttpVersion;
 use http2::http2;
 
@@ -204,15 +206,28 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
     }
 
     fn send_http20 (self) -> HttpResult<Response> {
-        //connect with client.connection
-        http2::init();
-        // try to init connection
-            // 
+        // let (host, port) = try!(get_host_and_port(&url));
+        // let mut stream = try!(self.connector.connect(&*host, port, &*url.scheme));
+        // try!(http2::init(&mut stream));
+
+        // config {
+        //     stream,
+        //     encoder, 
+        //     decoder,
+        //     session,
+        // }
+
+        // pub fn send_request(stream: &mut NetworkStream, encoder: &mut Encoder, req: Request) -> HttpResult<()> {
+        // http2: connect with client.connection
+        //client.connector.connect returns stream
+
+        // Request::http2()
             // 
         // write/read preface
             // if fail
-            self.send_http11()
         // pass requestbuilder into Request::http2()
+        
+        self.send_http11()
     }
 
     fn send_http11 (self) -> HttpResult<Response> {
