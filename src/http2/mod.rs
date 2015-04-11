@@ -4,14 +4,19 @@ use std::io;
 use std::convert::From;
 use std::error::Error;
 
+use hpack::{Encoder, Decoder};
 use hpack::decoder::DecoderError;
+
+use net::{HttpStream};
 
 #[doc(hidden)]
 pub mod frame;
 #[doc(hidden)]
 pub mod session;
 #[doc(hidden)]
-pub mod http2;
+pub mod handler;
+#[doc(hidden)]
+pub mod utils;
 
 /// An alias for the type that represents the ID of an HTTP/2 stream
 pub type StreamId = u32;
@@ -32,6 +37,7 @@ pub enum HttpError {
     UnableToConnect,
     MalformedResponse,
 }
+
 
 /// Implement the trait that allows us to automatically convert `io::Error`s
 /// into an `HttpError` by wrapping the given `io::Error` into an `HttpError::IoError` variant.
@@ -60,6 +66,17 @@ impl PartialEq for HttpError {
             _ => false,
         }
     }
+}
+
+
+#[doc(hidden)]
+pub struct Config {
+    host: String,
+    stream: HttpStream,
+    encoder: Encoder<'static>,
+    decoder: Decoder<'static>,
+    session: session::DefaultSession,
+    next_stream_id: u32
 }
 
 /// A convenience `Result` type that has the `HttpError` type as the error

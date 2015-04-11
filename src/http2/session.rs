@@ -139,8 +139,8 @@ impl<S> DefaultSession<S> where S: Stream {
 
     /// Returns a reference to a stream with the given ID, if such a stream is
     /// found in the `DefaultSession`.
-    pub fn get_stream(&self, stream_id: StreamId) -> Option<&S> {
-        self.streams.get(&stream_id)
+    pub fn get_stream(&self, stream_id: &StreamId) -> Option<&S> {
+        self.streams.get(stream_id)
     }
 
     /// Creates a new stream with the given ID in the session.

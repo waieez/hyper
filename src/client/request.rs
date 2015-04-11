@@ -45,16 +45,13 @@ impl Request<Fresh> {
     /// Create a new client request.
     pub fn new(method: method::Method, url: Url) -> HttpResult<Request<Fresh>> {
         let mut conn = HttpConnector(None);
-        let mut version = Http11;
-        Request::with_connector(method, url, &mut conn, &mut version) //http2:flag for http11
+        let version = Http11; // http2: perhaps default to http20 when autoupgrade is implemented
+        Request::with_connector(method, url, &mut conn, version) 
     }
 
-    // pub fn http2 () {
-        //http2: edit me
-    // }
 
     /// Create a new client request with a specific underlying NetworkStream.
-    pub fn with_connector<C, S>(method: method::Method, url: Url, connector: &mut C, version: &mut HttpVersion)
+    pub fn with_connector<C, S>(method: method::Method, url: Url, connector: &mut C, version: HttpVersion)
         -> HttpResult<Request<Fresh>> where
         C: NetworkConnector<Stream=S>,
         S: Into<Box<NetworkStream + Send>> {
@@ -64,7 +61,6 @@ impl Request<Fresh> {
         //http2: note could perhaps call with connector to get stream
         let stream = try!(connector.connect(&*host, port, &*url.scheme)).into();
         let stream = ThroughWriter(BufWriter::new(stream));
-        let protocol = version.clone(); //copy version to request
 
         let mut headers = Headers::new();
         headers.set(Host {
@@ -77,7 +73,7 @@ impl Request<Fresh> {
             method: method,
             headers: headers,
             url: url,
-            version: protocol, //change to use protocol var
+            version: version,
             body: stream,
             _marker: PhantomData,
         })
@@ -164,7 +160,7 @@ impl Request<Streaming> {
     ///
     /// Consumes the Request.
     pub fn send(self) -> HttpResult<Response> {
-        //http2: check version if http2, call sendhttp2 privatefunc. raw is the stream
+        //http2: check version if http2, call sendhttp2 privatefunc. raw is a stream
         match self.version {
             // Http20 => {
             //     //http2: perhaps add http2 response method
@@ -177,63 +173,6 @@ impl Request<Streaming> {
         }
         
     }
-
-    // http2: note client::send is called to get response
-    // fn sendhttp2 (&mut self) -> HttpStream? {
-        // init
-        //write_preface(stream: &mut NetworkStream);
-        //read_preface(stream: &mut NetworkStream);
-
-        //gets a streamid
-
-        //if success
-            // send_request
-            // first destructure Fresh Request
-            // let scheme = b"http".to_vec();
-            // let host = self.host.clone();
-
-            // let stream_id = self.new_stream();
-
-            // let mut headers: Vec<Header> = vec![
-            //     (b":method".to_vec(), method.to_vec()),
-            //     (b":path".to_vec(), path.to_vec()),
-            //     (b":authority".to_vec(), host),
-            //     (b":scheme".to_vec(), scheme),
-            // ];
-            // where does the body go?
-
-            //recreate request object
-            //extract stream from request
-            //send_request(stream: &mut NetworkStream, encoder: &mut Encoder, req: Request)
-            // try!(self.conn.send_request(Request {
-            //     stream_id: stream_id,
-            //     headers: headers,
-            //     body: Vec::new(),
-            // }));
-        //else
-            //send as http1
-
-            // pub fn get_response(session: &mut Session, stream_id: StreamId) -> HttpResult<Response> {
-            //     match session.get_stream(stream_id) {
-            //         None => return Err(HttpError::UnknownStreamId),
-            //         Some(_) => {},
-            //     };
-            //     loop {
-            //         if let Some(stream) = session.get_stream(stream_id) {
-            //             if stream.is_closed() {
-            //                 return Ok(Response {
-            //                     stream_id: stream.id(),
-            //                     headers: stream.headers.clone().unwrap(),
-            //                     body: stream.body.clone(),
-            //                 });
-            //             }
-            //         }
-            //         //handle_next_frame(stream: &mut NetworkStream, session: &mut Session, decoder: &mut Decoder) -> HttpResult<()>
-            //         try!(handle_next_frame());
-            //     }
-            // }
-
-    // }
 }
 
 impl Write for Request<Streaming> {

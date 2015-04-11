@@ -33,8 +33,11 @@ use {Url, HttpResult};
 use HttpError::HttpUriError;
 
 //http2
+use http2; //todo bring exports up a level
 use version::HttpVersion;
-use http2::http2;
+use hpack::{Encoder, Decoder};
+use http2::session::{DefaultSession};
+use http2::HttpError::UnknownStreamId;
 
 pub use self::request::Request;
 pub use self::response::Response;
@@ -48,8 +51,7 @@ pub mod response;
 pub struct Client {
     connector: Connector,
     redirect_policy: RedirectPolicy,
-    /// Version to separate control flow for Http2 Requests
-    pub version: HttpVersion
+    version: HttpVersion
 }
 
 impl Client {
@@ -58,21 +60,21 @@ impl Client {
     pub fn new() -> Client {
         Client::with_connector(HttpConnector(None))
     }
-    // Client::new().http2().get("url").send()
-    /// Sets flag for http2 requests
+
+    /// Sets Flag for HTTP Version
     pub fn http2(mut self) -> Client {
-        //http2: not too sure about this method for chaining
+        //http2: Client::new().http2().get("url").send()
         self.version = HttpVersion::Http20;
         self
     }
-    
+
     /// Create a new client with a specific connector.
     pub fn with_connector<C, S>(connector: C) -> Client
     where C: NetworkConnector<Stream=S> + Send + 'static, S: NetworkStream + Send {
         Client {
             connector: with_connector(connector),
             redirect_policy: Default::default(),
-            version: HttpVersion::Http11
+            version: HttpVersion::Http11 // http2: default to HTTP1.1, muts by chaining .http2
         }
     }
 
@@ -114,12 +116,14 @@ impl Client {
 
     /// Build a new request using this Client.
     pub fn request<U: IntoUrl>(&mut self, method: Method, url: U) -> RequestBuilder<U> {
+        let version = self.version.clone();
         RequestBuilder {
             client: self,
             method: method,
             url: url,
             body: None,
             headers: None,
+            version: version // http2: allows option to chain http2 on Client or RequestBuilder
         }
     }
 }
@@ -160,10 +164,19 @@ pub struct RequestBuilder<'a, U: IntoUrl> {
     headers: Option<Headers>,
     method: Method,
     body: Option<Body<'a>>,
+    version: HttpVersion
 }
 
 impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
-
+    /// Sets flag for http2 requests
+    pub fn http2(mut self) -> RequestBuilder<'a, U> {
+        //http2: not too sure about this method for chaining
+        // Client::new().get("url").http2().send()
+        // Currently not in use
+        self.version = HttpVersion::Http20;
+        self
+    }
+    
     /// Set a request body to be sent.
     pub fn body<B: IntoBody<'a>>(mut self, body: B) -> RequestBuilder<'a, U> {
         self.body = Some(body.into_body());
@@ -195,7 +208,7 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
     /// Execute this request and receive a Response back.
     pub fn send(self) -> HttpResult<Response> {
         //http2: fork into http2
-        match self.client.version {
+        match self.version {
             HttpVersion::Http20 => {
                 self.send_http20()
             }
@@ -205,33 +218,74 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
         }
     }
 
-    fn send_http20 (self) -> HttpResult<Response> {
-        // let (host, port) = try!(get_host_and_port(&url));
-        // let mut stream = try!(self.connector.connect(&*host, port, &*url.scheme));
-        // try!(http2::init(&mut stream));
+    // RequestBuilder
+    // client: &'a mut Client, //
+    // url: U,
+    // headers: Option<Headers>,
+    // method: Method,
+    // body: Option<Body<'a>>,
+    // version: HttpVersion
 
-        // config {
-        //     stream,
-        //     encoder, 
-        //     decoder,
-        //     session,
-        // }
+    fn send_http20 (self) -> HttpResult<http2::Response> {
+        // self.send_http11()
+    //  http2: TODO REFACTOR
+        let RequestBuilder { client, method, url, headers, body, version } = self; //clone incase we need to fallback?
+        let mut url = try!(url.into_url());
+        let path = url.scheme.clone(); //what type is this? what's the actual string that gets returned?
+        debug!("reqbuilder {:?} {:?}", method, headers);
 
-        // pub fn send_request(stream: &mut NetworkStream, encoder: &mut Encoder, req: Request) -> HttpResult<()> {
-        // http2: connect with client.connection
-        //client.connector.connect returns stream
+    //  Potentially move into Request::http2 method
+    //  connect and send preface
+        let (host, port) = try!(get_host_and_port(&url));
+        let authority = host.clone();
 
-        // Request::http2()
-            // 
-        // write/read preface
-            // if fail
-        // pass requestbuilder into Request::http2()
-        
-        self.send_http11()
+        let mut stream = try!(self.client.connector.connect(&*host, port, &*url.scheme)); //.into()? returns Box<Networkstream
+        try!(http2::handler::init(&mut *stream));
+    //  if fail, fallback to http11?
+
+    //  http2::Config::new()?
+    //  if connection successful create config struct to pass around
+        let mut config =  http2::Config {
+            host: authority,
+            stream: stream,
+            encoder: Encoder::new(),
+            decoder: Decoder::new(),
+            session: DefaultSession::new(),
+            next_stream_id: 1
+        };
+
+    // move into http2? //config.session, url?
+    // using next_stream_id, send request as a vector of bytes
+        let stream_id = http2::utils::new_stream(&mut config);
+        let scheme = b"http".to_vec(); // we have a scheme already, reuse it?
+        let host = &config.host.clone(); // convert to bytes first // do we need to clone?
+        let mut headers: Vec<http2::Header> = vec![
+            (b":method".to_vec(), method.to_string().as_bytes().to_vec()), //these all have their own types
+            (b":path".to_vec(), path.as_bytes().to_vec()), // need to be careful when converting to string
+            (b":authority".to_vec(), host.as_bytes().to_vec()),
+            (b":scheme".to_vec(), scheme),
+        ];
+    //  headers.extend(extras.to_vec().into_iter()); // not sure what this does
+    //  perhaps a util method that converts all headers to vector of bytes
+    //  b"..." gives a 'byte' string (i.e. &[u8])
+    //  .to_vec() creates a Vec<u8> out of that
+
+    //  Todo: refactor to use hyper request, change to use config struct?
+        try!(http2::handler::send_request(&mut config.stream, &mut config.encoder, http2::Request {
+            stream_id: stream_id, //clone stream?
+            headers: headers,
+            body: Vec::new(),
+        }));
+
+        http2::handler::get_response(&mut config, &mut config.session, stream_id)
+        // problems: streams don't match
+        // conversion to http2header potentially does not work
+        // send_request errors dont match
+        // response doesnt match
     }
 
     fn send_http11 (self) -> HttpResult<Response> {
-        let RequestBuilder { client, method, url, headers, body } = self;
+        let RequestBuilder { client, method, url, headers, body, version } = self;
         let mut url = try!(url.into_url());
         debug!("client.request {:?} {:?}", method, url);
 
@@ -247,7 +301,7 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
         };
 
         loop { //http2: calls req::w/conn and returns Request<Fresh>
-            let mut req = try!(Request::with_connector(method.clone(), url.clone(), &mut client.connector, &mut client.version));
+            let mut req = try!(Request::with_connector(method.clone(), url.clone(), &mut client.connector, version.clone()));
             headers.as_ref().map(|headers| req.headers_mut().extend(headers.iter()));
 
             match (can_have_body, body.as_ref()) {

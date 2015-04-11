@@ -1,5 +1,6 @@
-use super::session::Session;
-use super::{HttpError, HttpResult, Request};
+use std::io::Write;
+use super::session::{Session, DefaultSession, Stream};
+use super::{HttpError, HttpResult, Request, Response, Config, StreamId};
 use super::frame::{
     Frame,
     RawFrame,
@@ -12,7 +13,7 @@ use super::frame::{
     unpack_header,
 };
 use hpack::{Encoder, Decoder};
-use net::{NetworkStream};
+use net::{NetworkConnector, HttpConnector, HttpStream, NetworkStream};
 
 /// An enum representing all frame variants that can be returned by an
 /// `HttpConnection`.
@@ -34,7 +35,7 @@ pub enum HttpFrame {
 /// `HttpError::IoError` variant and propagated upwards.
 ///
 /// If the frame is successfully written, returns a unit Ok (`Ok(())`).
-pub fn send_frame<F: Frame>(stream: &mut NetworkStream, frame: F) -> HttpResult<()> {
+pub fn send_frame<F: Frame>(stream: &mut HttpStream, frame: F) -> HttpResult<()> {
     // debug!("Sending frame ... {:?}", frame.get_header());
     try!(stream.write_all(&frame.serialize()));
     Ok(())
@@ -58,7 +59,7 @@ pub fn send_frame<F: Frame>(stream: &mut NetworkStream, frame: F) -> HttpResult<
 ///
 /// If a frame is successfully read and parsed, returns the frame wrapped
 /// in the appropriate variant of the `HttpFrame` enum.
-pub fn recv_frame(stream: &mut NetworkStream) -> HttpResult<HttpFrame> {
+pub fn recv_frame(stream: &mut HttpStream) -> HttpResult<HttpFrame> {
     let header = unpack_header(&try!(read_header_bytes(stream)));
     // debug!("Received frame header {:?}", header);
 
@@ -87,7 +88,7 @@ pub fn recv_frame(stream: &mut NetworkStream) -> HttpResult<HttpFrame> {
 ///
 /// Any IO errors raised by the underlying transport layer are wrapped in a
 /// `HttpError::IoError` variant and propagated upwards.
-fn read_header_bytes(stream: &mut NetworkStream) -> HttpResult<[u8; 9]> {
+fn read_header_bytes(stream: &mut HttpStream) -> HttpResult<[u8; 9]> {
     let mut buf = [0; 9];
     try!(stream.read_exact(&mut buf));
 
@@ -102,7 +103,7 @@ fn read_header_bytes(stream: &mut NetworkStream) -> HttpResult<[u8; 9]> {
 ///
 /// Any IO errors raised by the underlying transport layer are wrapped in a
 /// `HttpError::IoError` variant and propagated upwards.
-fn read_payload(stream: &mut NetworkStream, len: u32) -> HttpResult<Vec<u8>> {
+fn read_payload(stream: &mut HttpStream, len: u32) -> HttpResult<Vec<u8>> {
     // debug!("Trying to read {} bytes of frame payload", len);
     let length = len as usize;
     let mut buf: Vec<u8> = Vec::with_capacity(length);
@@ -127,10 +128,11 @@ fn parse_frame<F: Frame>(raw_frame: RawFrame) -> HttpResult<F> {
 }
 
 /// Initializes http2 connection by writing client preface and blocking to read the returned preface
-pub fn init (stream: &mut NetworkStream) -> HttpResult<()> {
+pub fn init (stream: &mut HttpStream) -> HttpResult<()> {
     try!(write_preface(stream));
     try!(read_preface(stream));
     Ok(())
+    //should return something better to handle errors
 }
 
 /// Writes the client preface to the underlying HTTP/2 connection.
@@ -140,7 +142,7 @@ pub fn init (stream: &mut NetworkStream) -> HttpResult<()> {
 ///
 /// # Returns
 /// Any error raised by the underlying connection is propagated.
-fn write_preface(stream: &mut NetworkStream) -> HttpResult<()> {
+fn write_preface(stream: &mut HttpStream) -> HttpResult<()> {
     // The first part of the client preface is always this sequence of 24
     // raw octets.
     let preface = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
@@ -170,7 +172,7 @@ fn write_preface(stream: &mut NetworkStream) -> HttpResult<()> {
 ///
 /// Additionally, if it is not possible to decode the server preface,
 /// it returns the `HttpError::UnableToConnect` variant.
-fn read_preface(stream: &mut NetworkStream) -> HttpResult<()> {
+fn read_preface(stream: &mut HttpStream) -> HttpResult<()> {
     match recv_frame(stream) {
         Ok(HttpFrame::SettingsFrame(settings)) => {
             // debug!("Correctly received a SETTINGS frame from the server");
@@ -193,7 +195,7 @@ fn read_preface(stream: &mut NetworkStream) -> HttpResult<()> {
 /// # Note
 ///
 /// Request body is ignored for now.
-pub fn send_request(stream: &mut NetworkStream, encoder: &mut Encoder, req: Request) -> HttpResult<()> {
+pub fn send_request(stream: &mut HttpStream, encoder: &mut Encoder, req: Request) -> HttpResult<()> {
     let headers_fragment = encoder.encode(&req.headers);
     // For now, sending header fragments larger than 16kB is not supported
     // (i.e. the encoded representation cannot be split into CONTINUATION
@@ -212,11 +214,44 @@ pub fn send_request(stream: &mut NetworkStream, encoder: &mut Encoder, req: Requ
     Ok(())
 }
 
+
+/// Gets the response for the stream with the given ID. If a valid stream ID
+/// is given, it blocks until a response is received.
+///
+/// # Returns
+///
+/// A `Response` if the response can be successfully read.
+///
+/// Any underlying IO errors are propagated. Errors in the HTTP/2 protocol
+/// also stop processing and are returned to the client.
+pub fn get_response(config: &mut Config, session: &mut DefaultSession, stream_id: StreamId) -> HttpResult<Response> {
+    match session.get_stream(&stream_id) { //stream_id getting hairy
+        None => return Err(HttpError::UnknownStreamId),
+        Some(_) => {},
+    };
+    loop {
+        if let Some(stream) = config.session.get_stream(&stream_id) {
+            if stream.is_closed() {
+                //response does not match hypers
+                return Ok(Response {
+                    stream_id: stream.id(),
+                    headers: stream.headers.clone().unwrap(),
+                    body: stream.body.clone(),
+                });
+            }
+        }
+        //or perhaps just pass config through
+        try!(handle_next_frame(&mut config.stream, &mut config.session, &mut config.decoder));
+    }
+}
+
+
+
 /// Fully handle the next incoming frame, blocking to read it from the
 /// underlying transport stream if not available yet.
 ///
 /// All communication errors are propagated.
-pub fn handle_next_frame(stream: &mut NetworkStream, session: &mut Session, decoder: &mut Decoder) -> HttpResult<()> {
+pub fn handle_next_frame(stream: &mut HttpStream, session: &mut Session, decoder: &mut Decoder) -> HttpResult<()> {
     // debug!("Waiting for frame...");
     let frame = match recv_frame(stream) {
         Ok(frame) => frame,
@@ -234,7 +269,7 @@ pub fn handle_next_frame(stream: &mut NetworkStream, session: &mut Session, deco
 }
 
 /// Private helper method that actually handles a received frame.
-fn handle_frame(stream: &mut NetworkStream, session: &mut Session, decoder: &mut Decoder, frame: HttpFrame) -> HttpResult<()> {
+fn handle_frame(stream: &mut HttpStream, session: &mut Session, decoder: &mut Decoder, frame: HttpFrame) -> HttpResult<()> {
     match frame {
         HttpFrame::DataFrame(frame) => {
             // debug!("Data frame received");
@@ -278,7 +313,7 @@ fn handle_headers_frame(session: &mut Session, decoder: &mut Decoder, frame: Hea
 }
 
 /// Private helper method that handles a received `SettingsFrame`.
-fn handle_settings_frame(stream: &mut NetworkStream, frame: SettingsFrame) -> HttpResult<()> {
+fn handle_settings_frame(stream: &mut HttpStream, frame: SettingsFrame) -> HttpResult<()> {
     if !frame.is_ack() {
         // TODO: Actually handle the settings change before
         //       sending out the ACK.
@@ -288,3 +323,4 @@ fn handle_settings_frame(stream: &mut NetworkStream, frame: SettingsFrame) -> Ht
 
     Ok(())
 }
+
