@@ -126,6 +126,12 @@ fn parse_frame<F: Frame>(raw_frame: RawFrame) -> HttpResult<F> {
     Frame::from_raw(raw_frame).ok_or(HttpError::InvalidFrame)
 }
 
+/// Initializes http2 connection by writing client preface and blocking to read the returned preface
+pub fn init (stream: &mut NetworkStream) -> HttpResult<()> {
+    try!(write_preface(stream));
+    try!(read_preface(stream));
+    OK(())
+}
 
 /// Writes the client preface to the underlying HTTP/2 connection.
 ///

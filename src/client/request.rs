@@ -49,6 +49,11 @@ impl Request<Fresh> {
         Request::with_connector(method, url, &mut conn, &mut version) //http2:flag for http11
     }
 
+    pub fn http2 () {
+        let stream = try!(connector.connect(&*host, port, &*url.scheme)).into();
+        
+    }
+
     /// Create a new client request with a specific underlying NetworkStream.
     pub fn with_connector<C, S>(method: method::Method, url: Url, connector: &mut C, version: &mut HttpVersion)
         -> HttpResult<Request<Fresh>> where
@@ -243,6 +248,7 @@ impl Write for Request<Streaming> {
         self.body.flush()
     }
 }
+
 
 #[cfg(test)]
 mod tests {

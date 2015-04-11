@@ -32,6 +32,7 @@ use status::StatusClass::Redirection;
 use {Url, HttpResult};
 use HttpError::HttpUriError;
 use version::HttpVersion;
+use http2::http2;
 
 pub use self::request::Request;
 pub use self::response::Response;
@@ -194,19 +195,27 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
         //http2: fork into http2
         match self.client.version {
             HttpVersion::Http20 => {
-                self.sendhttp20()
+                self.send_http20()
             }
             _ => {
-                self.sendhttp11()
+                self.send_http11()
             }
         }
     }
 
-    fn sendhttp20 (self) -> HttpResult<Response> {
-        self.sendhttp11()
+    fn send_http20 (self) -> HttpResult<Response> {
+        //connect with client.connection
+        http2::init();
+        // try to init connection
+            // 
+            // 
+        // write/read preface
+            // if fail
+            self.send_http11()
+        // pass requestbuilder into Request::http2()
     }
 
-    fn sendhttp11 (self) -> HttpResult<Response> {
+    fn send_http11 (self) -> HttpResult<Response> {
         let RequestBuilder { client, method, url, headers, body } = self;
         let mut url = try!(url.into_url());
         debug!("client.request {:?} {:?}", method, url);
